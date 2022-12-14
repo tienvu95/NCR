@@ -47,6 +47,7 @@ def get_model(num_users,num_items,mf_dim=10,layers=[10],reg_layers=[0,0,0,0],reg
     item_input_pos=Input(shape=(1,),dtype='int32')
     item_input_neg = Input(shape=(1,), dtype='int32')
 
+    ## in this context each point is projected to have 10 dimensional coordinates?
     MF_embedding_user=Embedding(input_dim=num_users,output_dim=mf_dim,embeddings_initializer='random_normal',
                                 name='mf_user_embedding',embeddings_regularizer=l2(reg_mf),input_length=1)
     MF_embedding_item = Embedding(input_dim=num_items, output_dim=mf_dim, embeddings_initializer='random_normal',
@@ -60,24 +61,30 @@ def get_model(num_users,num_items,mf_dim=10,layers=[10],reg_layers=[0,0,0,0],reg
     mf_item_latent_pos=Flatten()(MF_embedding_item(item_input_pos))
     mf_item_latent_neg = Flatten()(MF_embedding_item(item_input_neg))
 
-
+    ## merge = deprecated use keras.layers.Concatenate(axis=-1) instead
     prefer_pos = merge([mf_user_latent, mf_item_latent_pos], mode='mul')
     prefer_neg = merge([mf_user_latent, mf_item_latent_neg], mode='mul')
+    ## convert negative layer to negative, lambda layers should be re-written as subclass layer if too complex (eg: multiply by scale?)
     prefer_neg = Lambda(lambda x: -x)(prefer_neg)
+    ## basically just merge 2 layer
     mf_vector = merge([prefer_pos, prefer_neg], mode='concat')
 
-
+    ## flat matrix to an array
     mlp_user_latent=Flatten()(MLP_embedding_user(user_input))
     mlp_item_latent_pos=Flatten()(MLP_embedding_item(item_input_pos))
     mlp_item_latent_neg=Flatten()(MLP_embedding_item(item_input_neg))
     mlp_item_latent_neg=Lambda(lambda x:-x)(mlp_item_latent_neg)
     mlp_vector=merge([mlp_user_latent,mlp_item_latent_pos,mlp_item_latent_neg],mode='concat')
     for idx in range(1,num_layer):
+        #set up hidden layer of the network, why tanh and have to regularize?? L1 consider weight, l2 consider square of weight
         layer=Dense(layers[idx],kernel_regularizer=l2(0.0000),activation='tanh',name="layer%d" %idx)
         mlp_vector=layer(mlp_vector)
 
+    ## concatenation of NBPR layer and DNCR layer
     predict_vector=merge([mf_vector,mlp_vector],mode='concat')
 
+
+    #set up prediction --> final layer, sigmoid activate to give binary output
     prediction=Dense(1,activation='sigmoid',kernel_initializer='lecun_uniform',name='prediction')(predict_vector)
     model=Model(inputs=[user_input,item_input_pos,item_input_neg],outputs=prediction)
 
@@ -208,9 +215,3 @@ if __name__=='__main__':
 
     print("End. Best Iteration %d: Test HR = %.4f, NDCG = %.4f. " % (best_iter, best_test_hr, best_test_ndcg))
     print('learning_rate: %.5f , num_factor: %d' % (learning_rate, mf_dim))
-
-
-
-
-
-
